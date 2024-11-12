@@ -180,7 +180,7 @@ void FreeChunkMap::AddFreeChunk(page_idx_t pageIdx, page_idx_t numPages)
  * Serializes free chunk entry for persistence. Called from serializeVector within serialize of
  * free chunk map.
  */
-void FreeChunkEntry::serialize(Serializer& serializer) {
+void FreeChunkEntry::serialize(Serializer& serializer) const {
     serializer.writeDebuggingInfo("pageIdx");
     serializer.write<page_idx_t>(pageIdx);
     serializer.writeDebuggingInfo("numPages");
@@ -227,7 +227,7 @@ void FreeChunkMap::serialize(Serializer& serializer) const
 /*
  * Deserializes free chunk map when restoring from checkpoint.
  */
-std::unique_ptr<FreeChunkMap> FreeChunkMap::deserialize(Deserializer& deserializer)
+void FreeChunkMap::deserialize(Deserializer& deserializer)
 {
     std::string str;
     std::vector<std::unique_ptr<FreeChunkEntry>> freeChunkList;
@@ -239,11 +239,9 @@ std::unique_ptr<FreeChunkMap> FreeChunkMap::deserialize(Deserializer& deserializ
     deserializer.deserializeVectorOfPtrs(freeChunkList);
     deserializer.validateDebuggingInfo(str, "existingFreeChunks");
     deserializer.deserializeUnorderedSet(existingFreeChunks);
-    std::unique_ptr<FreeChunkMap> freeChunkMap = std::make_unique<FreeChunkMap>();
-    freeChunkMap->maxAvailLevel = std::move(maxAvailLevel);
-    freeChunkMap->freeChunkList = std::move(freeChunkList);
-    freeChunkMap->existingFreeChunks = std::move(existingFreeChunks);
-    return freeChunkMap;
+    this->maxAvailLevel = std::move(maxAvailLevel);
+    this->freeChunkList = std::move(freeChunkList);
+    this->existingFreeChunks = std::move(existingFreeChunks);
 }
 
 } // namespace storage

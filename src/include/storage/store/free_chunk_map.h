@@ -54,7 +54,7 @@ typedef struct FreeChunkEntry {
     common::page_idx_t numPages;
     std::unique_ptr<FreeChunkEntry> nextEntry = nullptr;
 
-    void serialize(common::Serializer& serializer);
+    void serialize(common::Serializer& serializer) const;
     static std::unique_ptr<FreeChunkEntry> deserialize(common::Deserializer &deserializer);
 
 } FreeChunkEntry;
@@ -72,7 +72,7 @@ public:
     void AddFreeChunk(common::page_idx_t pageIdx, common::page_idx_t numPages);
 
     void serialize(common::Serializer& serializer) const;
-    static std::unique_ptr<FreeChunkMap> deserialize(common::Deserializer& deserializer);
+    void deserialize(common::Deserializer& deserializer);
 
 private:
     FreeChunkLevel GetChunkLevel(common::page_idx_t numPages);

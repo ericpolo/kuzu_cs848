@@ -27,6 +27,7 @@ FileHandle::FileHandle(const std::string& path, uint8_t flags, BufferManager* bm
         frameGroupIdxes[i] = bm->addNewFrameGroup(pageSizeClass);
     }
     freeChunkMap = std::make_unique<FreeChunkMap>();
+    KU_ASSERT(freeChunkMap != nullptr);
 }
 
 void FileHandle::constructExistingFileHandle(const std::string& path, VirtualFileSystem* vfs,
@@ -54,11 +55,7 @@ void FileHandle::constructNewFileHandle(const std::string& path) {
 }
 
 void FileHandle::loadFreeChunkMap(Deserializer& deserializer) {
-    std::unique_ptr<FreeChunkMap> deserializedFCM = FreeChunkMap::deserialize(deserializer);
-    if (freeChunkMap != nullptr) {
-        /* Extra precaution - if the map is nullptr for any reason, allow it to remain empty */
-        freeChunkMap = std::move(deserializedFCM);
-    }
+    freeChunkMap->deserialize(deserializer);
 }
 
 void FileHandle::checkpoint(Serializer& serializer) const {
