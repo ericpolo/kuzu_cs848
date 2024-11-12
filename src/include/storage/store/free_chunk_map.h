@@ -52,10 +52,10 @@ const common::page_idx_t FreeChunkLevelPageNumLimit[MAX_FREE_CHUNK_LEVEL] = {
 typedef struct FreeChunkEntry {
     common::page_idx_t pageIdx;
     common::page_idx_t numPages;
-    FreeChunkEntry *nextEntry = nullptr;
+    std::unique_ptr<FreeChunkEntry> nextEntry = nullptr;
 
     void serialize(common::Serializer& serializer);
-    static FreeChunkEntry* deserialize(common::Deserializer &deserializer);
+    static std::unique_ptr<FreeChunkEntry> deserialize(common::Deserializer &deserializer);
 
 } FreeChunkEntry;
 
@@ -68,7 +68,7 @@ public:
     FreeChunkMap();
     ~FreeChunkMap();
 
-    FreeChunkEntry *GetFreeChunk(common::page_idx_t numPages);
+    std::unique_ptr<FreeChunkEntry> GetFreeChunk(common::page_idx_t numPages);
     void AddFreeChunk(common::page_idx_t pageIdx, common::page_idx_t numPages);
 
     void serialize(common::Serializer& serializer) const;
@@ -79,7 +79,7 @@ private:
     void UpdateMaxAvailLevel();
 
     /*No need for locks here since only checkpoint will need free chunks when all other transactions are blocked */
-    std::vector<FreeChunkEntry *> freeChunkList;
+    std::vector<std::unique_ptr<FreeChunkEntry>> freeChunkList;
     std::unordered_set<common::page_idx_t> existingFreeChunks;
     FreeChunkLevel maxAvailLevel;
 };

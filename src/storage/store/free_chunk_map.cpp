@@ -22,10 +22,11 @@ FreeChunkMap::FreeChunkMap()
 
 FreeChunkMap::~FreeChunkMap() {
     for (int i = 0; i < MAX_FREE_CHUNK_LEVEL; i++) {
-        while (freeChunkList[i] != nullptr) {
-            FreeChunkEntry *curEntry = freeChunkList[i];
-            freeChunkList[i] = curEntry->nextEntry;
-            free(curEntry);
+        std::unique_ptr<FreeChunkEntry> curr = std::move(freeChunkList[i]);
+        while (curr != nullptr) {
+            // std::move will set the original variable to nullptr.
+            // automatic garbage collection will deallocate the memory.
+            curr = std::move(curr->nextEntry);
         }
     }
 
@@ -73,7 +74,7 @@ void FreeChunkMap::UpdateMaxAvailLevel()
  * Note: Any caller of this function need to add the entry back to FreeChunkMap after use so that the rest
  * of its unused space will be reused
  */
-FreeChunkEntry *FreeChunkMap::GetFreeChunk(page_idx_t numPages)
+std::unique_ptr<FreeChunkEntry> FreeChunkMap::GetFreeChunk(page_idx_t numPages)
 {
     /* 0. return immediately if it does not want any pages */
     if (numPages == 0) {
@@ -99,14 +100,18 @@ FreeChunkEntry *FreeChunkMap::GetFreeChunk(page_idx_t numPages)
 
         /* Search the current level for an entry with valid reuse timestamp */
         KU_ASSERT(freeChunkList[curLevel] != nullptr);
-        FreeChunkEntry *curEntry = freeChunkList[curLevel];
+        /* curEntry and lastSearchEntry are raw pointers to traverse the linked list */
+        FreeChunkEntry* curEntry = freeChunkList[curLevel].get();
         FreeChunkEntry *lastSearchEntry = nullptr;
+        /* entryToReturn is the unique pointer instance to return from the function */
+        std::unique_ptr<FreeChunkEntry> entryToReturn = nullptr;
         while (curEntry != nullptr) {
             if (curEntry->numPages >= numPages) {
                 /* found a valid entry to reuse. Remove it from current linked list */
                 if (lastSearchEntry == nullptr) {
                     /* the valid entry is the first entry in the L.L. */
-                    freeChunkList[curLevel] = curEntry->nextEntry;
+                    entryToReturn = std::move(freeChunkList[curLevel]);
+                    freeChunkList[curLevel] = std::move(entryToReturn->nextEntry);
 
                     /* update maxAvailLevel if we have removed the last entry of the max available Level */
                     if (curLevel == maxAvailLevel && freeChunkList[curLevel] == nullptr) {
@@ -114,17 +119,18 @@ FreeChunkEntry *FreeChunkMap::GetFreeChunk(page_idx_t numPages)
                     }
                 } else {
                     /* need to unlink it from its parent */
-                    lastSearchEntry->nextEntry = curEntry->nextEntry;
+                    entryToReturn = std::move(lastSearchEntry->nextEntry);
+                    lastSearchEntry->nextEntry = std::move(entryToReturn->nextEntry);
                 }
-                curEntry->nextEntry = nullptr;
-                existingFreeChunks.erase(curEntry->pageIdx);
+                entryToReturn->nextEntry = nullptr;
+                existingFreeChunks.erase(entryToReturn->pageIdx);
 
-                return curEntry;
+                return entryToReturn;
             }
 
             /* Move to the next entry */
             lastSearchEntry = curEntry;
-            curEntry = curEntry->nextEntry;
+            curEntry = curEntry->nextEntry.get();
         }
     }
     
@@ -178,41 +184,25 @@ void FreeChunkEntry::serialize(Serializer& serializer) {
     serializer.write<page_idx_t>(pageIdx);
     serializer.writeDebuggingInfo("numPages");
     serializer.write<page_idx_t>(numPages);
-    serializer.writeDebuggingInfo("nextEntryPresent");
-    // NOTE: serializeOptionalValue requires std::unique_ptr. If our implementation will work with
-    // that, we can replace all of this with one function call
-    if (nextEntry) {
-        // Record that next entry is present
-        serializer.write<bool>(true);
-        // traverse the pointer and serialize it as well. This will recursively serialize the list
-        serializer.writeDebuggingInfo("nextEntry");
-        nextEntry->serialize(serializer);
-    } else {
-        // Record that next entry is not present
-        serializer.write<bool>(false);
-    }
+    serializer.writeDebuggingInfo("nextEntry");
+    serializer.serializeOptionalValue(nextEntry);
 }
 
 /*
  * Deserializes free chunk entry when restoring from checkpoint
  */
-FreeChunkEntry* FreeChunkEntry::deserialize(Deserializer& deserializer) {
+std::unique_ptr<FreeChunkEntry> FreeChunkEntry::deserialize(Deserializer& deserializer) {
     std::string str;
     page_idx_t pageIdx = INVALID_PAGE_IDX;
     page_idx_t numPages = INVALID_PAGE_IDX;
-    bool nextEntryPresent = false;
-    FreeChunkEntry* nextEntry = nullptr;
+    std::unique_ptr<FreeChunkEntry> nextEntry = nullptr;
     deserializer.validateDebuggingInfo(str, "freeChunkLevel");
     deserializer.deserializeValue<page_idx_t>(pageIdx);
     deserializer.validateDebuggingInfo(str, "numPages");
     deserializer.deserializeValue<page_idx_t>(numPages);
-    deserializer.validateDebuggingInfo(str, "nextEntryPresent");
-    deserializer.deserializeValue<bool>(nextEntryPresent);
-    if (nextEntryPresent) {
-        deserializer.validateDebuggingInfo(str, "nextEntry");
-        nextEntry = FreeChunkEntry::deserialize(deserializer);
-    }
-    FreeChunkEntry* currentEntry = new FreeChunkEntry;
+    deserializer.validateDebuggingInfo(str, "nextEntry");
+    deserializer.deserializeOptionalValue(nextEntry);
+    std::unique_ptr<FreeChunkEntry> currentEntry = std::make_unique<FreeChunkEntry>();
     currentEntry->pageIdx = std::move(pageIdx);
     currentEntry->numPages = std::move(numPages);
     currentEntry->nextEntry = std::move(nextEntry);
@@ -228,7 +218,7 @@ void FreeChunkMap::serialize(Serializer& serializer) const
     serializer.writeDebuggingInfo("freeChunkLevel");
     serializer.write<FreeChunkLevel>(maxAvailLevel);
     serializer.writeDebuggingInfo("freeChunkList");
-    serializer.serializeVectorOfRawPtrs(freeChunkList);
+    serializer.serializeVectorOfPtrs(freeChunkList);
     serializer.writeDebuggingInfo("existingFreeChunks");
     serializer.serializeUnorderedSet(existingFreeChunks);
 }
@@ -239,13 +229,13 @@ void FreeChunkMap::serialize(Serializer& serializer) const
 std::unique_ptr<FreeChunkMap> FreeChunkMap::deserialize(Deserializer& deserializer)
 {
     std::string str;
-    std::vector<FreeChunkEntry *> freeChunkList;
+    std::vector<std::unique_ptr<FreeChunkEntry>> freeChunkList;
     std::unordered_set<page_idx_t> existingFreeChunks;
     FreeChunkLevel maxAvailLevel = INVALID_FREE_CHUNK_LEVEL;
     deserializer.validateDebuggingInfo(str, "maxAvailLevel");
     deserializer.deserializeValue<FreeChunkLevel>(maxAvailLevel);
     deserializer.validateDebuggingInfo(str, "freeChunkList");
-    deserializer.deserializeVectorOfRawPtrs(freeChunkList);
+    deserializer.deserializeVectorOfPtrs(freeChunkList);
     deserializer.validateDebuggingInfo(str, "existingFreeChunks");
     deserializer.deserializeUnorderedSet(existingFreeChunks);
     std::unique_ptr<FreeChunkMap> freeChunkMap = std::make_unique<FreeChunkMap>();

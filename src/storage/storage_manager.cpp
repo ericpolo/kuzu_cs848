@@ -83,6 +83,7 @@ void StorageManager::loadTables(const Catalog& catalog, VirtualFileSystem* vfs,
                 auto table = Table::loadTable(deSer, catalog, this, &memoryManager, vfs, context);
                 tables[table->getTableID()] = std::move(table);
             }
+            dataFH->loadFreeChunkMap(deSer);
         }
     }
 
@@ -241,6 +242,7 @@ void StorageManager::checkpoint(main::ClientContext& clientContext) {
         }
         tables.at(tableEntry->getTableID())->checkpoint(ser, tableEntry);
     }
+    dataFH->checkpoint(ser);
     writer->flush();
     writer->sync();
     shadowFile->flushAll();

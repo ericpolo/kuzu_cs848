@@ -219,7 +219,8 @@ void ColumnChunkData::flush(FileHandle& dataFH) {
     auto startPageIdx = INVALID_PAGE_IDX;
     if (preScanMetadata.numPages != 0) {
         auto& freeChunkMap = dataFH.getFreeChunkMap();
-        auto* freeChunkEntry = freeChunkMap.GetFreeChunk(preScanMetadata.numPages);
+        std::unique_ptr<FreeChunkEntry> freeChunkEntry =
+            freeChunkMap.GetFreeChunk(preScanMetadata.numPages);
         if (freeChunkEntry != nullptr) {
             KU_ASSERT(freeChunkEntry->numPages >= preScanMetadata.numPages);
             startPageIdx = freeChunkEntry->pageIdx;
@@ -227,7 +228,10 @@ void ColumnChunkData::flush(FileHandle& dataFH) {
             if (freeChunkEntry->numPages != 0) {
                 freeChunkMap.AddFreeChunk(freeChunkEntry->pageIdx + preScanMetadata.numPages, freeChunkEntry->numPages);
             }
-            delete freeChunkEntry;
+            /*
+             * There are no more references to the memory location pointed to by freeChunkEntry
+             * above, so the memory will be deallocated automatically outside the if condition.
+             */
         }
     }
 
