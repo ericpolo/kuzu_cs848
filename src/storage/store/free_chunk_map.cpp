@@ -153,24 +153,25 @@ void FreeChunkMap::AddFreeChunk(page_idx_t pageIdx, page_idx_t numPages)
     KU_ASSERT(curLevel < MAX_FREE_CHUNK_LEVEL);
 
     /* 2. Create a new FreeChunkEntry */
-    FreeChunkEntry *entry = new FreeChunkEntry;
+    std::unique_ptr<FreeChunkEntry> entry = std::make_unique<FreeChunkEntry>();
     entry->pageIdx = pageIdx;
     entry->numPages = numPages;
 
     /* 3. Insert it into the L.L. */
     if (freeChunkList[curLevel] == nullptr) {
-        freeChunkList[curLevel] = entry;
+        freeChunkList[curLevel] = std::move(entry);
         if (maxAvailLevel < curLevel) {
             maxAvailLevel = curLevel;
         }
     } else {
-        FreeChunkEntry *curEntryInList = freeChunkList[curLevel];
+        /* Traverse to last node in list */
+        FreeChunkEntry *curEntryInList = freeChunkList[curLevel].get();
         while (curEntryInList->nextEntry != nullptr) {
-            curEntryInList = curEntryInList->nextEntry;
+            curEntryInList = curEntryInList->nextEntry.get();
         }
 
         KU_ASSERT(curEntryInList != nullptr);
-        curEntryInList->nextEntry = entry;
+        curEntryInList->nextEntry = std::move(entry);
     }
     existingFreeChunks.insert(pageIdx);
 }
