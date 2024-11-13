@@ -290,7 +290,7 @@ void NodeTable::dropColumn(Transaction* transaction, column_id_t columnID) {
         page_idx_t numPages = phyInfo.second;
         /* Skip column chunk data that has no physical storage */
         if (pageIdx != INVALID_PAGE_IDX && numPages != 0) {
-            freeChunkMap.AddFreeChunk(pageIdx, numPages);
+            freeChunkMap.addFreeChunk(pageIdx, numPages);
         }
     }
 

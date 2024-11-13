@@ -54,7 +54,7 @@ void FileHandle::constructNewFileHandle(const std::string& path) {
     pageCapacity = 0;
 }
 
-void FileHandle::loadFreeChunkMap(Deserializer& deserializer) {
+void FileHandle::loadFreeChunkMap(Deserializer& deserializer) const {
     freeChunkMap->deserialize(deserializer);
 }
 

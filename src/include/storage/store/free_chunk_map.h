@@ -68,15 +68,15 @@ public:
     FreeChunkMap();
     ~FreeChunkMap();
 
-    std::unique_ptr<FreeChunkEntry> GetFreeChunk(common::page_idx_t numPages);
-    void AddFreeChunk(common::page_idx_t pageIdx, common::page_idx_t numPages);
+    std::unique_ptr<FreeChunkEntry> getFreeChunk(common::page_idx_t numPages);
+    void addFreeChunk(common::page_idx_t pageIdx, common::page_idx_t numPages);
 
     void serialize(common::Serializer& serializer) const;
     void deserialize(common::Deserializer& deserializer);
 
 private:
-    FreeChunkLevel GetChunkLevel(common::page_idx_t numPages);
-    void UpdateMaxAvailLevel();
+    FreeChunkLevel getChunkLevel(common::page_idx_t numPages);
+    void updateMaxAvailLevel();
 
     /*No need for locks here since only checkpoint will need free chunks when all other transactions are blocked */
     std::vector<std::unique_ptr<FreeChunkEntry>> freeChunkList;

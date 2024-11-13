@@ -86,6 +86,15 @@ public:
     }
 
     template<typename T>
+    void serializeVectorOfNullablePtrs(const std::vector<std::unique_ptr<T>>& values) {
+        const uint64_t vectorSize = values.size();
+        serializeValue<uint64_t>(vectorSize);
+        for (auto& value : values) {
+            serializeOptionalValue<T>(value);
+        }
+    }
+
+    template<typename T>
     void serializeUnorderedSet(const std::unordered_set<T>& values) {
         uint64_t setSize = values.size();
         serializeValue(setSize);
