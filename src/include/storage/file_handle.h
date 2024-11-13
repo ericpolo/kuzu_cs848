@@ -111,8 +111,9 @@ public:
         return isLargePaged() ? common::TEMP_PAGE_SIZE : common::PAGE_SIZE;
     }
 
-    void loadFreeChunkMap();
+    void loadFreeChunkMap(common::Deserializer& deserializer) const;
     FreeChunkMap &getFreeChunkMap() const { return *freeChunkMap; }
+    void checkpoint(common::Serializer& serializer) const;
 
 private:
     bool isLargePaged() const { return flags & isLargePagedMask; }

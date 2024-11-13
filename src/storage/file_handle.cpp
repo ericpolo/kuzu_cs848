@@ -26,6 +26,8 @@ FileHandle::FileHandle(const std::string& path, uint8_t flags, BufferManager* bm
     for (auto i = 0u; i < frameGroupIdxes.size(); i++) {
         frameGroupIdxes[i] = bm->addNewFrameGroup(pageSizeClass);
     }
+    freeChunkMap = std::make_unique<FreeChunkMap>();
+    KU_ASSERT(freeChunkMap != nullptr);
 }
 
 void FileHandle::constructExistingFileHandle(const std::string& path, VirtualFileSystem* vfs,
@@ -44,20 +46,20 @@ void FileHandle::constructExistingFileHandle(const std::string& path, VirtualFil
     while (pageCapacity < numPages) {
         pageCapacity += StorageConstants::PAGE_GROUP_SIZE;
     }
-    loadFreeChunkMap();
 }
 
 void FileHandle::constructNewFileHandle(const std::string& path) {
     fileInfo = std::make_unique<FileInfo>(path, nullptr);
     numPages = 0;
     pageCapacity = 0;
-    loadFreeChunkMap();
 }
 
-void FileHandle::loadFreeChunkMap() {
-    freeChunkMap = std::make_unique<FreeChunkMap>();
+void FileHandle::loadFreeChunkMap(Deserializer& deserializer) const {
+    freeChunkMap->deserialize(deserializer);
+}
 
-    /* ERICTODO: Dummy funciton now. We will need to add more logic here when loading FCM data back from disk */
+void FileHandle::checkpoint(Serializer& serializer) const {
+    freeChunkMap->serialize(serializer);
 }
 
 page_idx_t FileHandle::addNewPage() {

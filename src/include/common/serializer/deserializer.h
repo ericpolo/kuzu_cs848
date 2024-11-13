@@ -88,6 +88,16 @@ public:
     }
 
     template<typename T>
+    void deserializeVectorOfNullablePtrs(std::vector<std::unique_ptr<T>>& values) {
+        uint64_t vectorSize = 0;
+        deserializeValue(vectorSize);
+        values.resize(vectorSize);
+        for (auto i = 0u; i < vectorSize; i++) {
+            deserializeOptionalValue<T>(values[i]);
+        }
+    }
+
+    template<typename T>
     void deserializeVectorOfPtrs(std::vector<std::unique_ptr<T>>& values,
         std::function<std::unique_ptr<T>(Deserializer&)> deserializeFunc) {
         uint64_t vectorSize = 0;

@@ -292,8 +292,8 @@ void NodeGroup::checkpoint(MemoryManager& memoryManager, NodeGroupCheckpointStat
     // Re-populate version info here first.
     auto checkpointedVersionInfo = checkpointVersionInfo(lock, &DUMMY_CHECKPOINT_TRANSACTION);
     isAllDeleted = (checkpointedVersionInfo->getNumDeletions(&DUMMY_CHECKPOINT_TRANSACTION, 0, DEFAULT_VECTOR_CAPACITY) == getNumRows());
-    std::unique_ptr<ChunkedNodeGroup> checkpointedChunkedGroup;
     if (!isAllDeleted) {
+        std::unique_ptr<ChunkedNodeGroup> checkpointedChunkedGroup;
         /* if given chunk group has non-deleted data, flush it to disk here */
         if (hasPersistentData) {
             checkpointedChunkedGroup = checkpointInMemAndOnDisk(memoryManager, lock, state);
@@ -323,11 +323,11 @@ void NodeGroup::checkpoint(MemoryManager& memoryManager, NodeGroupCheckpointStat
 
             /* Second, add it to our FreeChunkMap here */
             for(auto phyInfo : chunkInfo) {
-                page_idx_t pageIdx = phyInfo.first;
+                const page_idx_t pageIdx = phyInfo.first;
                 page_idx_t numPages = phyInfo.second;
                 /* Skip column chunk data that has no physical storage */
                 if (pageIdx != INVALID_PAGE_IDX && numPages != 0) {
-                    freeChunkMap.AddFreeChunk(pageIdx, numPages);
+                    freeChunkMap.addFreeChunk(pageIdx, numPages);
                 }
             }
         }

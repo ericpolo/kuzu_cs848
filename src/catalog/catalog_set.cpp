@@ -170,7 +170,7 @@ void CatalogSet::dropEntry(Transaction* transaction, const std::string& name, oi
             page_idx_t numPages = phyInfo.second;
             /* Skip column chunk data that has no physical storage */
             if (pageIdx != INVALID_PAGE_IDX && numPages != 0) {
-                freeChunkMap.AddFreeChunk(pageIdx, numPages);
+                freeChunkMap.addFreeChunk(pageIdx, numPages);
             }
         }
     }
