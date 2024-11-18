@@ -1,10 +1,14 @@
 #include <iostream>
 #include <string>
-#include "build/debug/src/kuzu.hpp"
+#include <chrono>
 #include <algorithm>
+#include <sys/stat.h>
+
+#include "build/debug/src/kuzu.hpp"
 
 using namespace kuzu::main;
 using namespace std;
+using namespace std::chrono;
 
 /* We create three node tables: People, Customer, and Organization. All three tables contain 10k entries */
 const int NUM_TABLES = 3;
@@ -15,13 +19,16 @@ const string tableCreateQuery [NUM_TABLES] = {
     "CREATE NODE TABLE Customer (id INT32, firstName STRING, lastName STRING, company STRING, city STRING, country STRING, primaryPhone STRING, secondaryPhone STRING, email STRING, website STRING, PRIMARY KEY(id));",
     "CREATE NODE TABLE Organization (id INT32, name STRING, website STRING, country STRING, description STRING, foundYear INT16, industry STRING, numEmployee INT16, PRIMARY KEY(id));"
 };
-/* will be updated later */
-string tableCopyQuery [NUM_TABLES] = {"", "", ""};
 
 const vector<string> tableColumns[NUM_TABLES] = {{"id", "firstName", "lastName", "sex", "email", "phone", "jobTitle"},
     {"id", "firstName", "lastName", "company", "city", "country", "primaryPhone", "secondaryPhone", "email", "website"},
     {"id", "name", "website", "country", "description", "foundYear", "industry", "numEmployee"}};
 const int tableNumColumns[3] = {7, 10, 8};
+
+/* These variables will be updated later after user input */
+string tableCopyQuery [NUM_TABLES] = {"", "", ""};
+string databaseHomeDirectory = "";
+string dataFilePath = "";
 
 enum AlterType : int
 {
@@ -44,7 +51,46 @@ enum TestType : int
     DELETE_NODE_GROUP = 2
 };
 
-/* Helper functions */
+/* This struct keep tracks of stat of each test case */
+typedef struct TestCaseStat {
+    /* Accumulated Checkpoint time */
+    microseconds checkPointTimeAcc;
+    /* Number of Checkpoint executed */
+    int numCheckPoint;
+    /* Duration of current test case */
+    microseconds runningDuration;
+    /* Data file size */
+    long dataFileSize;
+
+    void PrintStat() {
+        cout << "Current test case stat:" << endl
+             << "    checkPointTimeAccumulate: " << checkPointTimeAcc.count() <<" μs"<< endl
+             << "    checkPointCounts:         " << numCheckPoint << endl
+             << "    checkPointTimeAverage:    " << checkPointTimeAcc.count() / numCheckPoint << " μs" << endl
+             << "    runningDuration:          " << runningDuration.count() << " μs" << endl
+             << "    dataFileSize:             " << dataFileSize << " bytes" << endl;
+    }
+
+    static void PrintAllStat(vector<TestCaseStat> allStat) {
+        TestCaseStat accStat = {microseconds(0), 0, microseconds(0), 0};
+
+        for (auto stat : allStat) {
+            accStat.checkPointTimeAcc += stat.checkPointTimeAcc;
+            accStat.numCheckPoint += stat.numCheckPoint;
+            accStat.runningDuration += stat.runningDuration;
+            accStat.dataFileSize += stat.dataFileSize;
+        }
+        cout << "Overall test cases stat:" << endl
+             << "    checkPointTimeAccumulate: " << accStat.checkPointTimeAcc.count() <<" μs"<< endl
+             << "    checkPointCounts:         " << accStat.numCheckPoint << endl
+             << "    checkPointTimeAverage:    " << accStat.checkPointTimeAcc.count() / accStat.numCheckPoint << " μs" << endl
+             << "    runningDuration:          " << accStat.runningDuration.count() << " μs" << endl
+             << "    dataFileSizeAvg:          " << accStat.dataFileSize / allStat.size() << " bytes" << endl
+             << "    dataFileSizeFinal:        " << allStat.back().dataFileSize << " bytes" << endl;
+    }
+} TestCaseStat;
+
+/* Miscellaneous Helper functions */
 std::string GenRandomStr(const int len) {
     static const char alphanum[] =
         "0123456789"
@@ -77,6 +123,13 @@ void UpdateTableCopyQuery(string csvFileDir)
     tableCopyQuery[2] = "COPY Organization FROM '" + csvFileDir + +"/organizations-10000.csv';";
 }
 
+long GetFileSize(string filename)
+{
+    struct stat stat_buf;
+    int rc = stat(filename.c_str(), &stat_buf);
+    return rc == 0 ? stat_buf.st_size : -1;
+}
+
 string RandomSelectTable(string avoidTable)
 {
     string tableName = avoidTable;
@@ -100,6 +153,7 @@ int FindTableIndex(string tableName)
     return 0;
 }
 
+/* Main Helper functions used by test case */
 void CreateTable(const unique_ptr<Connection> &connection, string tableName)
 {
     for (auto i = 0; i < NUM_TABLES; i++) {
@@ -159,9 +213,13 @@ void AlterTable(const unique_ptr<Connection> &connection, string tableName, Alte
     connection->query(query);
 }
 
-void Checkpoint(const unique_ptr<Connection> &connection)
+microseconds Checkpoint(const unique_ptr<Connection> &connection)
 {
+    auto start = high_resolution_clock::now();
     connection->query("CHECKPOINT;");
+    auto end = high_resolution_clock::now();
+
+    return duration_cast<microseconds>(end - start);
 }
 
 void DeleteEntries(const unique_ptr<Connection> &connection, string tableName, int beginId, int endId)
@@ -175,17 +233,19 @@ void DeleteEntries(const unique_ptr<Connection> &connection, string tableName, i
 
 /* Test functions */
 /* Drop Table Test */
-void DropTableTest(const unique_ptr<Connection> &connection)
+void DropTableTest(const unique_ptr<Connection> &connection, TestCaseStat &stat)
 {
     string tableName = RandomSelectTable("");
     string nextTableName = RandomSelectTable(tableName);
+    auto start = high_resolution_clock::now();
+    microseconds ckptAccTime = microseconds(0);
 
     /*
      * 1. Create table here first
      *      Checkpoint will create physical storage
      */
     CreateTable(connection, tableName);
-    Checkpoint(connection);
+    ckptAccTime += Checkpoint(connection);
 
     /*
      * 2. Drop the table and Create another table.
@@ -194,29 +254,37 @@ void DropTableTest(const unique_ptr<Connection> &connection)
      */
     DropTable(connection, tableName);
     CreateTable(connection, nextTableName);
-    Checkpoint(connection);
+    ckptAccTime += Checkpoint(connection);
 
     /* 3. Drop the second tables here to wrap up the test */
     DropTable(connection, nextTableName);
-    Checkpoint(connection);
+    ckptAccTime += Checkpoint(connection);
+
+    /* 4. Update TestCaseStat here */
+    stat.checkPointTimeAcc = ckptAccTime;
+    stat.numCheckPoint = 3;
+    stat.runningDuration = duration_cast<microseconds>(high_resolution_clock::now() - start);
+    stat.dataFileSize = GetFileSize(dataFilePath);
 }
 
 /*
  * Alter Table Test
  * This test is limited to test Alter Table DROP ... for now
  */
-void AlterTableTest(const unique_ptr<Connection> &connection)
+void AlterTableTest(const unique_ptr<Connection> &connection, TestCaseStat &stat)
 {
     string tableName = RandomSelectTable("");
     int tableIndex = FindTableIndex(tableName);
     string nextTableName = RandomSelectTable(tableName);
+    auto start = high_resolution_clock::now();
+    microseconds ckptAccTime = microseconds(0);
 
     /*
      * 1. Create table here first
      *      Checkpoint will create physical storage
      */
     CreateTable(connection, tableName);
-    Checkpoint(connection);
+    ckptAccTime += Checkpoint(connection);
 
     /*
      * 2. Alter the table and Create another table.
@@ -228,40 +296,34 @@ void AlterTableTest(const unique_ptr<Connection> &connection)
     string dropColName = tableColumns[tableIndex][droppedColIndex];
     AlterTable(connection, tableName, DROP_COLUMN, dropColName, INVALID_COLUMN_TYPE);
     CreateTable(connection, nextTableName);
-    Checkpoint(connection);
+    ckptAccTime += Checkpoint(connection);
 
     /* 3. Drop both tables here to wrap up the test */
     DropTable(connection, tableName);
     DropTable(connection, nextTableName);
-    Checkpoint(connection);
-}
+    ckptAccTime += Checkpoint(connection);
 
-void displayQueryResult(const unique_ptr<QueryResult> &result)
-{
-    while (result->hasNext()) {
-        cout << "| ";
-        const auto row = result->getNext();
-        if (row->len() == 3) {
-            cout << row->getValue(0)->getValue<string>() << " | "
-                << row->getValue(1)->getValue<int64_t>() << " | "
-                << row->getValue(2)->getValue<int64_t>() << " | " << endl;
-        } else {
-            cout << row->getValue(0)->getValue<string>() << " | ";
-        }
-    }
+    /* 4. Update TestCaseStat here */
+    stat.checkPointTimeAcc = ckptAccTime;
+    stat.numCheckPoint = 3;
+    stat.runningDuration = duration_cast<microseconds>(high_resolution_clock::now() - start);
+    stat.dataFileSize = GetFileSize(dataFilePath);
 }
 
 /* Delete Node Group Test */
-void DeleteNodeGroupTest(const unique_ptr<Connection> &connection) {
+void DeleteNodeGroupTest(const unique_ptr<Connection> &connection, TestCaseStat &stat)
+{
     string tableName = RandomSelectTable("");
     string nextTableName = RandomSelectTable(tableName);
+    auto start = high_resolution_clock::now();
+    microseconds ckptAccTime = microseconds(0);
 
     /*
      * 1. Create table here first
      *      Checkpoint will create physical storage
      */
     CreateTable(connection, tableName);
-    Checkpoint(connection);
+    ckptAccTime += Checkpoint(connection);
 
     /*
      * 2. Delete table entries based on random ratio
@@ -270,26 +332,35 @@ void DeleteNodeGroupTest(const unique_ptr<Connection> &connection) {
     int beginId = (rand() % 50) * NUM_ROWS / 100;
     int endId = (rand() % 50 + 50) * NUM_ROWS / 100;
     DeleteEntries(connection, tableName, beginId, endId);
-    Checkpoint(connection);
+    ckptAccTime += Checkpoint(connection);
 
     /*
      * 3. Create a new table to resue recycled spaces
      */
     CreateTable(connection, nextTableName);
-    Checkpoint(connection);
+    ckptAccTime += Checkpoint(connection);
 
     /* 4. Drop both tables here to wrap up the test */
     DropTable(connection, tableName);
     DropTable(connection, nextTableName);
-    Checkpoint(connection);
+    ckptAccTime += Checkpoint(connection);
+
+    /* 5. Update TestCaseStat here */
+    stat.checkPointTimeAcc = ckptAccTime;
+    stat.numCheckPoint = 4;
+    stat.runningDuration = duration_cast<microseconds>(high_resolution_clock::now() - start);
+    stat.dataFileSize = GetFileSize(dataFilePath);
 }
 
+
+/* Main function for the benchmark */
 int main(int argc, char* argv[])
 {
     if (argc == 1) {
         cout<<"Please type following input:"<<endl
             <<"    -N <number of iteration you want to run>"<<endl
-            <<"    -D <directory that saves the csv source file>"<<endl;
+            <<"    -D <directory of the csv source files>"<<endl
+            <<"    -B <directory of database>";
         return 0;
     }
 
@@ -304,45 +375,60 @@ int main(int argc, char* argv[])
     int maxIteration = 0;
     char *iterationsArg = GetCmdOption(argv, argv + argc, "-N");
     if (iterationsArg == 0) {
-        cout<<"Please use -N to specify the directory that saves the csv source file"<<endl;
+        cout<<"Please use -N to specify the directory that saves the csv source files"<<endl;
         return 0;
     }
     maxIteration = std::atoi(iterationsArg);
+
+    char *databaseDir = GetCmdOption(argv, argv + argc, "-B");;
+    if (databaseDir == nullptr) {
+        cout<<"Please use -D to specify the directory that saves database files"<<endl;
+        return 0;
+    }
+    databaseHomeDirectory = databaseDir;
+    dataFilePath = databaseHomeDirectory + "/data.kz";
+
     cout<<"User Parameters:"<<endl
         <<"    Csv file source directory: "<<csvFileDir<<endl
-        <<"    Max test iterations: "<<maxIteration<<endl;
+        <<"    Max test iterations: "<<maxIteration<<endl
+        <<"    Database home directory: "<<databaseDir<<endl;
 
     /* Create an empty on-disk database and connect to it */
     kuzu::main::SystemConfig systemConfig;
-    auto database = make_unique<Database>("testDB", systemConfig);
+    auto database = make_unique<Database>(databaseDir, systemConfig);
     auto connection = make_unique<Connection>(database.get());
 
     if (connection != nullptr) {
-        int curIter = 0;
-        while (curIter < maxIteration) {
-            cout << "---------------------------\nBegin " + to_string(curIter) + "th iterations\n---------------------------" << endl;
+        int curIter = 1;
+        vector<TestCaseStat> allStat = {};
+        while (curIter <= maxIteration) {
+            cout << "----------------------------\nBegin " + to_string(curIter) + "th iterations\n----------------------------" << endl;
             TestType testCase = (TestType)(rand() % 3);
+            TestCaseStat stat = {microseconds(0), 0, microseconds(0), 0};
             switch (testCase) {
                 case DROP_TABLE: {
-                    /* ERICTODO: Calculate average checkpoint time here */
                     cout << "Test Type: DROP_TABLE" << endl;
-                    DropTableTest(connection);
+                    DropTableTest(connection, stat);
                     break;
                 }
                 case ALTER_TABLE: {
-                    /* ERICTODO: Calculate average checkpoint time here */
                     cout << "Test Type: ALTER_TABLE" << endl;
-                    AlterTableTest(connection);
+                    AlterTableTest(connection, stat);
                     break;
                 }
                 case DELETE_NODE_GROUP: {
-                    /* ERICTODO: Calculate average checkpoint time here */
                     cout << "Test Type: DELETE_NODE_GROUP" << endl;
-                    DeleteNodeGroupTest(connection);
+                    DeleteNodeGroupTest(connection, stat);
                     break;
                 }
             }
+            stat.PrintStat();
+            cout << endl;
+            allStat.push_back(stat);
+
             curIter++;
         }
+
+        TestCaseStat::PrintAllStat(allStat);
     }
 }
