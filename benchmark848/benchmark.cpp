@@ -3,8 +3,15 @@
 #include <chrono>
 #include <algorithm>
 #include <sys/stat.h>
+#include <cstdlib>
+#include <stdlib.h>
+#include <ctime>
 
+#ifdef DEBUG
 #include "build/debug/src/kuzu.hpp"
+#else
+#include "build/release/src/kuzu.hpp"
+#endif
 
 using namespace kuzu::main;
 using namespace std;
@@ -91,12 +98,13 @@ typedef struct TestCaseStat {
 } TestCaseStat;
 
 /* Miscellaneous Helper functions */
-std::string GenRandomStr(const int len) {
+string GenRandomStr(const int len)
+{
     static const char alphanum[] =
         "0123456789"
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "abcdefghijklmnopqrstuvwxyz";
-    std::string tmp_s;
+    string tmp_s;
     tmp_s.reserve(len);
 
     for (int i = 0; i < len; ++i) {
@@ -106,9 +114,9 @@ std::string GenRandomStr(const int len) {
     return tmp_s;
 }
 
-char* GetCmdOption(char ** begin, char ** end, const std::string & option)
+char* GetCmdOption(char ** begin, char ** end, const string & option)
 {
-    char ** itr = std::find(begin, end, option);
+    char ** itr = find(begin, end, option);
     if (itr != end && ++itr != end)
     {
         return *itr;
@@ -116,32 +124,32 @@ char* GetCmdOption(char ** begin, char ** end, const std::string & option)
     return nullptr;
 }
 
-void UpdateTableCopyQuery(string csvFileDir)
+void UpdateTableCopyQuery(const string& csvFileDir)
 {
     tableCopyQuery[0] = "COPY People FROM '" + csvFileDir + +"/people-10000.csv';";
     tableCopyQuery[1] = "COPY Customer FROM '" + csvFileDir + +"/customers-10000.csv';";
     tableCopyQuery[2] = "COPY Organization FROM '" + csvFileDir + +"/organizations-10000.csv';";
 }
 
-long GetFileSize(string filename)
+long GetFileSize(const string& filename)
 {
     struct stat stat_buf;
     int rc = stat(filename.c_str(), &stat_buf);
     return rc == 0 ? stat_buf.st_size : -1;
 }
 
-string RandomSelectTable(string avoidTable)
+string RandomSelectTable(const string& avoidTable)
 {
     string tableName = avoidTable;
-    while (tableName == avoidTable) {
+    do {
         int tableIndex = rand() % NUM_TABLES;
         tableName = tableNames[tableIndex];
-    }
+    } while (tableName == avoidTable);
 
     return tableName;
 }
 
-int FindTableIndex(string tableName)
+int FindTableIndex(const string& tableName)
 {
     for (int i = 0; i < NUM_TABLES; i++) {
         if (tableNames[i] == tableName) {
@@ -156,13 +164,10 @@ int FindTableIndex(string tableName)
 /* Main Helper functions used by test case */
 void CreateTable(const unique_ptr<Connection> &connection, string tableName)
 {
-    for (auto i = 0; i < NUM_TABLES; i++) {
-        auto name = tableNames[i];
-        if (tableName == name) {
-            connection->query(tableCreateQuery[i]);
-            connection->query(tableCopyQuery[i]);
-        }
-    }
+    int index = FindTableIndex(tableName);
+    KU_ASSERT(index < NUM_TABLES);
+    connection->query(tableCreateQuery[index]);
+    connection->query(tableCopyQuery[index]);
 }
 
 void DropTable(const unique_ptr<Connection> &connection, string tableName)
@@ -172,7 +177,7 @@ void DropTable(const unique_ptr<Connection> &connection, string tableName)
 }
 
 /* Note that colType is only valid when alterType is ADD_COLUMN. Otherwise, it should be set as INVALID_COLUMN_TYPE */
-void AlterTable(const unique_ptr<Connection> &connection, string tableName, AlterType alterType, string colName, AlterAddColumnType colType)
+void AlterTable(const unique_ptr<Connection> &connection, string tableName, AlterType alterType, string colName, AlterAddColumnType colType = INVALID_COLUMN_TYPE)
 {
     KU_ASSERT(alterType != ADD_COLUMN || colType == INVALID_COLUMN_TYPE);
 
@@ -294,7 +299,7 @@ void AlterTableTest(const unique_ptr<Connection> &connection, TestCaseStat &stat
     int numColumn = tableNumColumns[tableIndex];
     int droppedColIndex = rand() % numColumn;
     string dropColName = tableColumns[tableIndex][droppedColIndex];
-    AlterTable(connection, tableName, DROP_COLUMN, dropColName, INVALID_COLUMN_TYPE);
+    AlterTable(connection, tableName, DROP_COLUMN, dropColName);
     CreateTable(connection, nextTableName);
     ckptAccTime += Checkpoint(connection);
 
@@ -356,18 +361,19 @@ void DeleteNodeGroupTest(const unique_ptr<Connection> &connection, TestCaseStat 
 /* Main function for the benchmark */
 int main(int argc, char* argv[])
 {
-    if (argc == 1) {
-        cout<<"Please type following input:"<<endl
-            <<"    -N <number of iteration you want to run>"<<endl
-            <<"    -D <directory of the csv source files>"<<endl
-            <<"    -B <directory of database>";
+    if (GetCmdOption(argv, argv + argc, "-h") != nullptr || argc != 7) {
+        cout << "Please provide following parameters:" << endl
+             << "    -N <number of iteration you want to run>" << endl
+             << "    -D <directory of the csv source files>" << endl
+             << "    -B <directory of database>" << endl;
         return 0;
     }
 
     /* parse the argument first */
     char *csvFileDir = GetCmdOption(argv, argv + argc, "-D");
     if (csvFileDir == nullptr) {
-        cout<<"Please use -D to specify the directory that saves the csv source file"<<endl;;
+        cout << "Please use -D to specify the directory that saves the csv source file" << endl
+             << "Please use -h option to see what parameter we need" << endl;
         return 0;
     }
     UpdateTableCopyQuery(csvFileDir);
@@ -375,14 +381,16 @@ int main(int argc, char* argv[])
     int maxIteration = 0;
     char *iterationsArg = GetCmdOption(argv, argv + argc, "-N");
     if (iterationsArg == 0) {
-        cout<<"Please use -N to specify the directory that saves the csv source files"<<endl;
+        cout << "Please use -N to specify the directory that saves the csv source files" << endl
+             << "Please use -h option to see what parameter we need" << endl;
         return 0;
     }
-    maxIteration = std::atoi(iterationsArg);
+    maxIteration = atoi(iterationsArg);
 
     char *databaseDir = GetCmdOption(argv, argv + argc, "-B");;
     if (databaseDir == nullptr) {
-        cout<<"Please use -D to specify the directory that saves database files"<<endl;
+        cout << "Please use -D to specify the directory that saves database files" << endl
+             << "Please use -h option to see what parameter we need" << endl;
         return 0;
     }
     databaseHomeDirectory = databaseDir;
@@ -391,7 +399,17 @@ int main(int argc, char* argv[])
     cout<<"User Parameters:"<<endl
         <<"    Csv file source directory: "<<csvFileDir<<endl
         <<"    Max test iterations: "<<maxIteration<<endl
-        <<"    Database home directory: "<<databaseDir<<endl;
+        <<"    Database home directory: "<<databaseDir<<endl
+        <<"    Debug Build?: "
+#ifdef DEBUG
+        <<"True"
+#else
+        <<"False"
+#endif
+        <<endl;
+
+    /* Seed random generator before proceed */
+    srand(static_cast<unsigned int>(time(0)));
 
     /* Create an empty on-disk database and connect to it */
     kuzu::main::SystemConfig systemConfig;
