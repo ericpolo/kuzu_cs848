@@ -17,6 +17,10 @@ class Deserializer;
 
 namespace storage {
 
+/* Change this macro if we want to disable FCM feature */
+#define ENABLE_FREE_CHUNK_MAP true
+// #define ENABLE_FREE_CHUNK_MAP false
+
 /*
  * FreeChunkLevel indicates how many pages are free to use in a corresponding FreeChunkEntry
  * Note that: these pages are consecutive in disk space and we are indicating the lower limit
@@ -25,18 +29,19 @@ namespace storage {
 enum FreeChunkLevel : int {
     INVALID_FREE_CHUNK_LEVEL = -1,
     FREE_CHUNK_LEVEL_0 = 0,
-    FREE_CHUNK_LEVEL_256 = 1,
-    FREE_CHUNK_LEVEL_512 = 2,
-    FREE_CHUNK_LEVEL_1024 = 3,
-    FREE_CHUNK_LEVEL_2048 = 4,
-    FREE_CHUNK_LEVEL_4096 = 5,
-    FREE_CHUNK_LEVEL_8192 = 6,
-    MAX_FREE_CHUNK_LEVEL = 7
+    FREE_CHUNK_LEVEL_2 = 1,
+    FREE_CHUNK_LEVEL_4 = 2,
+    FREE_CHUNK_LEVEL_8 = 3,
+    FREE_CHUNK_LEVEL_16 = 4,
+    FREE_CHUNK_LEVEL_32 = 5,
+    FREE_CHUNK_LEVEL_64 = 6,
+    FREE_CHUNK_LEVEL_128 = 7,
+    MAX_FREE_CHUNK_LEVEL = 8
 };
 
 /* This const array indicates the upper limit of each level (same as the lower limit of the next level) */
 const common::page_idx_t FreeChunkLevelPageNumLimit[MAX_FREE_CHUNK_LEVEL] = {
-    256, 512, 1024, 2048, 4096, 8192, UINT32_MAX
+    2, 4, 8, 16, 32, 64, 128, UINT32_MAX
 };
 
 /*

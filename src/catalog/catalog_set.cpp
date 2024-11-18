@@ -1,6 +1,7 @@
 #include "catalog/catalog_set.h"
 
 #include <vector>
+#include <iostream>
 
 #include "binder/ddl/bound_alter_info.h"
 #include "catalog/catalog_entry/dummy_catalog_entry.h"
