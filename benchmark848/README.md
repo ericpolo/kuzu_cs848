@@ -1,4 +1,5 @@
-To run this benchmakr, you need to have following environment variables defined:
+To run this benchmark, you need to have the following environment variables defined:
+
 ```
 # kuzu env
 export KUZU_REPO=<your Kuzu repo directory>
@@ -8,18 +9,21 @@ export PATH="~${KUZU_REPO}/build/debug/tools/shell:$PATH"
 ```
 
 Then, after compiled Kuzu, use this command to compile the test:
+1. If your Kuzu is compiled in debug mode:
+    ```
+    g++ benchmark.cpp -DDEBUG -std=c++2a -g -lkuzu -lpthread -I ${KUZU_REPO} -o 848benchmark
+    ```
+2. If your Kuzu is compiled in release mode:
+    ```
+    g++ benchmark.cpp -std=c++2a -lkuzu -lpthread -I ${KUZU_REPO} -o 848benchmark
+    ```
+Compilation will generate an executable named 848benchmark.
+
+You could use -h option to see the list of parameters required by the test:
 ```
-// it will generate an executable named 848benchmark
-// if your Kuzu is compiled in debug mode:
-g++ benchmark.cpp -DDEBUG -std=c++2a -g -lkuzu -lpthread -I ${KUZU_REPO} -o 848benchmark
-// if your Kuzu is compiled in release mode:
-g++ benchmark.cpp -std=c++2a -lkuzu -lpthread -I ${KUZU_REPO} -o 848benchmark
+./848benchmark -h
 ```
 
-You could use -h option to see the list of parameters requried by the test:
-```
-    ./848benchmark -h
-```
 848benchmark takes three parameters:
 1. -N: number of iterations
 2. -D: directory of csv data file
@@ -30,6 +34,7 @@ To run the test, use this command:
 rm -rf <test DB directory>
 ./848benchmark -N <test iterations> -D <csv source directory> -B <test DB directory>
 ```
+
 Here is an example to run for 10 iterations:
 ```
 ./848benchmark -N 10 -D . -B ./testDB/
