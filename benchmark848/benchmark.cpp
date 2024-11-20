@@ -8,9 +8,9 @@
 #include <ctime>
 
 #ifdef DEBUG
-#include "build/debug/src/kuzu.hpp"
+#include "../build/debug/src/kuzu.hpp"
 #else
-#include "build/release/src/kuzu.hpp"
+#include "../build/release/src/kuzu.hpp"
 #endif
 
 using namespace kuzu::main;
@@ -36,6 +36,7 @@ const int tableNumColumns[3] = {7, 10, 8};
 string tableCopyQuery [NUM_TABLES] = {"", "", ""};
 string databaseHomeDirectory = "";
 string dataFilePath = "";
+string metadataFilePath = "";
 
 enum AlterType : int
 {
@@ -68,6 +69,8 @@ typedef struct TestCaseStat {
     microseconds runningDuration;
     /* Data file size */
     long dataFileSize;
+    /* Metadata file size */
+    long metadataFileSize;
 
     void PrintStat() {
         cout << "Current test case stat:" << endl
@@ -75,17 +78,19 @@ typedef struct TestCaseStat {
              << "    checkPointCounts:         " << numCheckPoint << endl
              << "    checkPointTimeAverage:    " << checkPointTimeAcc.count() / numCheckPoint << " μs" << endl
              << "    runningDuration:          " << runningDuration.count() << " μs" << endl
-             << "    dataFileSize:             " << dataFileSize << " bytes" << endl;
+             << "    dataFileSize:             " << dataFileSize << " bytes" << endl
+             << "    metadataFileSize:         " << metadataFileSize << " bytes" << endl;
     }
 
     static void PrintAllStat(vector<TestCaseStat> allStat) {
-        TestCaseStat accStat = {microseconds(0), 0, microseconds(0), 0};
+        TestCaseStat accStat = {microseconds(0), 0, microseconds(0), 0, 0};
 
         for (auto stat : allStat) {
             accStat.checkPointTimeAcc += stat.checkPointTimeAcc;
             accStat.numCheckPoint += stat.numCheckPoint;
             accStat.runningDuration += stat.runningDuration;
             accStat.dataFileSize += stat.dataFileSize;
+            accStat.metadataFileSize += stat.metadataFileSize;
         }
         cout << "Overall test cases stat:" << endl
              << "    checkPointTimeAccumulate: " << accStat.checkPointTimeAcc.count() <<" μs"<< endl
@@ -93,7 +98,9 @@ typedef struct TestCaseStat {
              << "    checkPointTimeAverage:    " << accStat.checkPointTimeAcc.count() / accStat.numCheckPoint << " μs" << endl
              << "    runningDuration:          " << accStat.runningDuration.count() << " μs" << endl
              << "    dataFileSizeAvg:          " << accStat.dataFileSize / allStat.size() << " bytes" << endl
-             << "    dataFileSizeFinal:        " << allStat.back().dataFileSize << " bytes" << endl;
+             << "    dataFileSizeFinal:        " << allStat.back().dataFileSize << " bytes" << endl
+             << "    metadataFileSizeAvg:       " << allStat.back().metadataFileSize << " bytes" << endl
+             << "    metadataFileSizeFinal:   " << allStat.back().metadataFileSize << " bytes" << endl;
     }
 } TestCaseStat;
 
@@ -270,6 +277,7 @@ void DropTableTest(const unique_ptr<Connection> &connection, TestCaseStat &stat)
     stat.numCheckPoint = 3;
     stat.runningDuration = duration_cast<microseconds>(high_resolution_clock::now() - start);
     stat.dataFileSize = GetFileSize(dataFilePath);
+    stat.metadataFileSize = GetFileSize(metadataFilePath);
 }
 
 /*
@@ -313,6 +321,7 @@ void AlterTableTest(const unique_ptr<Connection> &connection, TestCaseStat &stat
     stat.numCheckPoint = 3;
     stat.runningDuration = duration_cast<microseconds>(high_resolution_clock::now() - start);
     stat.dataFileSize = GetFileSize(dataFilePath);
+    stat.metadataFileSize = GetFileSize(metadataFilePath);
 }
 
 /* Delete Node Group Test */
@@ -355,6 +364,7 @@ void DeleteNodeGroupTest(const unique_ptr<Connection> &connection, TestCaseStat 
     stat.numCheckPoint = 4;
     stat.runningDuration = duration_cast<microseconds>(high_resolution_clock::now() - start);
     stat.dataFileSize = GetFileSize(dataFilePath);
+    stat.metadataFileSize = GetFileSize(metadataFilePath);
 }
 
 
@@ -395,6 +405,7 @@ int main(int argc, char* argv[])
     }
     databaseHomeDirectory = databaseDir;
     dataFilePath = databaseHomeDirectory + "/data.kz";
+    metadataFilePath = databaseHomeDirectory + "/metadata.kz";
 
     cout<<"User Parameters:"<<endl
         <<"    Csv file source directory: "<<csvFileDir<<endl
