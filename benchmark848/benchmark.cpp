@@ -38,26 +38,124 @@ string databaseHomeDirectory = "";
 string dataFilePath = "";
 string metadataFilePath = "";
 
-enum AlterType : int
+enum class AlterType
 {
-    DROP_COLUMN = 0,
-    ADD_COLUMN = 1
+    DROP_COLUMN,
+    ADD_COLUMN,
+    INVALID_ALTER_OPERATION
 };
 
-enum AlterAddColumnType : int
+enum class AlterAddColumnType
 {
-    INVALID_COLUMN_TYPE = -1,
-    INT64 = 0,
-    BOOL = 1,
-    STRING = 2
+    INVALID_COLUMN_TYPE,
+    INT64,
+    BOOL,
+    STRING
 };
 
-enum TestType : int
+enum class TestType
 {
-    DROP_TABLE = 0,
-    ALTER_TABLE = 1,
-    DELETE_NODE_GROUP = 2
+    DROP_TABLE,
+    ALTER_TABLE,
+    DELETE_NODE_GROUP,
+    INVALID_TEST
 };
+
+enum Strategy : int {
+    AUTO,
+    FIXED,
+    ROUND_ROBIN,
+    SEED,
+    INVALID_STRATEGY
+};
+
+/* Operator overloading for output string */
+std::ostream& operator<<(std::ostream& os, AlterType alterType) {
+    switch (alterType) {
+        case AlterType::DROP_COLUMN:
+            os << "DROP COLUMN ";
+            break;
+        case AlterType::ADD_COLUMN:
+            os << "ADD COLUMN ";
+            break;
+        default:
+            os << "INVALID_ALTER_OPERATION";
+            break;
+    }
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, AlterAddColumnType alterAddColumnType) {
+    switch (alterAddColumnType) {
+        case AlterAddColumnType::INT64:
+            os << "INT64 ";
+            break;
+        case AlterAddColumnType::BOOL:
+            os << "BOOL ";
+            break;
+        case AlterAddColumnType::STRING:
+            os << "STRING ";
+            break;
+        default: os << "INVALID_COLUMN_TYPE";
+            break;
+    }
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, TestType testType) {
+    switch (testType) {
+        case TestType::DROP_TABLE:
+            os << "DROP TABLE ";
+            break;
+        case TestType::ALTER_TABLE:
+            os << "ALTER TABLE ";
+            break;
+        case TestType::DELETE_NODE_GROUP:
+            os << "DELETE NODE_GROUP ";
+            break;
+        default:
+            os << "INVALID_TEST";
+            break;
+    }
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, Strategy strategy) {
+    switch (strategy) {
+        case Strategy::AUTO:
+            os << "AUTO";
+            break;
+        case Strategy::FIXED:
+            os << "FIXED";
+            break;
+        case Strategy::ROUND_ROBIN:
+            os << "ROUND_ROBIN";
+            break;
+        case Strategy::SEED:
+            os << "SEED";
+            break;
+        default:
+            os << "UNKNOWN";
+            break;
+    }
+    return os;
+}
+
+Strategy parseStrategy(const std::string& str) {
+    static const std::unordered_map<std::string, Strategy> strategyMap = {
+        {"auto", Strategy::AUTO},
+        {"fixed", Strategy::FIXED},
+        {"round", Strategy::ROUND_ROBIN},
+        {"seed", Strategy::SEED}
+    };
+
+    auto it = strategyMap.find(str);
+    if (it != strategyMap.end()) {
+        return it->second;
+    } else {
+        return Strategy::INVALID_STRATEGY;
+    }
+}
 
 /* This struct keep tracks of stat of each test case */
 typedef struct TestCaseStat {
@@ -184,31 +282,32 @@ void DropTable(const unique_ptr<Connection> &connection, string tableName)
 }
 
 /* Note that colType is only valid when alterType is ADD_COLUMN. Otherwise, it should be set as INVALID_COLUMN_TYPE */
-void AlterTable(const unique_ptr<Connection> &connection, string tableName, AlterType alterType, string colName, AlterAddColumnType colType = INVALID_COLUMN_TYPE)
+void AlterTable(const unique_ptr<Connection> &connection, string tableName, AlterType alterType,
+    string colName, AlterAddColumnType colType = AlterAddColumnType::INVALID_COLUMN_TYPE)
 {
-    KU_ASSERT(alterType != ADD_COLUMN || colType == INVALID_COLUMN_TYPE);
+    KU_ASSERT(alterType != AlterType::ADD_COLUMN || colType == AlterAddColumnType::INVALID_COLUMN_TYPE);
 
     /* define base query here */
     string query = "ALTER TABLE" + tableName;
     switch (alterType) {
-        case DROP_COLUMN:
+        case AlterType::DROP_COLUMN:
             query += (" DROP COLUMN" + colName);
             break;
-        case ADD_COLUMN:
+        case AlterType::ADD_COLUMN:
             query += (" ADD COLUMN" + colName);
             switch (colType) {
-                case INT64: {
+                case AlterAddColumnType::INT64: {
                     int defaultVal = rand();
                     query += (" DEFAULT " + to_string(defaultVal));
                     break;
                 }
-                case BOOL: {
+                case AlterAddColumnType::BOOL: {
                     int defaultVal = rand() % 2;
                     string defaultStr = (defaultVal == 1)? "True":"False";
                     query += (" DEFAULT " + defaultStr);
                     break;
                 }
-                case STRING: {
+                case AlterAddColumnType::STRING: {
                     string defaultStr = GenRandomStr(20);
                     query += (" DEFAULT " + defaultStr);
                     break;
@@ -307,7 +406,7 @@ void AlterTableTest(const unique_ptr<Connection> &connection, TestCaseStat &stat
     int numColumn = tableNumColumns[tableIndex];
     int droppedColIndex = rand() % numColumn;
     string dropColName = tableColumns[tableIndex][droppedColIndex];
-    AlterTable(connection, tableName, DROP_COLUMN, dropColName);
+    AlterTable(connection, tableName, AlterType::DROP_COLUMN, dropColName);
     CreateTable(connection, nextTableName);
     ckptAccTime += Checkpoint(connection);
 
@@ -367,15 +466,35 @@ void DeleteNodeGroupTest(const unique_ptr<Connection> &connection, TestCaseStat 
     stat.metadataFileSize = GetFileSize(metadataFilePath);
 }
 
+TestType getTestCaseByStrategy(Strategy strategy, int& value) {
+    switch (strategy) {
+        case Strategy::AUTO:
+        case Strategy::SEED:
+            return static_cast<TestType>(rand() % 3);
+        case Strategy::ROUND_ROBIN:
+            return static_cast<TestType>(value++ % 3);
+        case Strategy::FIXED:
+            return static_cast<TestType>(value);
+        default: return TestType::INVALID_TEST;
+    }
+}
 
 /* Main function for the benchmark */
 int main(int argc, char* argv[])
 {
-    if (GetCmdOption(argv, argv + argc, "-h") != nullptr || argc != 7) {
+    if (GetCmdOption(argv, argv + argc, "-h") != nullptr || argc < 9) {
         cout << "Please provide following parameters:" << endl
              << "    -N <number of iteration you want to run>" << endl
              << "    -D <directory of the csv source files>" << endl
-             << "    -B <directory of database>" << endl;
+             << "    -B <directory of database>" << endl
+             << "    -S <strategy> one of auto | fixed | round | seed>" << endl
+             << "    -V <value> Specify the value for the strategy\n"
+             << "               If strategy is auto, value is ignored.\n"
+             << "               If strategy is fixed or round, value may be one of:\n"
+             << "                  0. DROP_TABLE\n"
+             << "                  1. DELETE_NODE_GROUP\n"
+             << "                  2. ALTER_TABLE\n"
+             << "               If strategy is seed, value can be any integer." << endl;
         return 0;
     }
 
@@ -397,12 +516,43 @@ int main(int argc, char* argv[])
     }
     maxIteration = atoi(iterationsArg);
 
-    char *databaseDir = GetCmdOption(argv, argv + argc, "-B");;
+    char *databaseDir = GetCmdOption(argv, argv + argc, "-B");
     if (databaseDir == nullptr) {
-        cout << "Please use -D to specify the directory that saves database files" << endl
+        cout << "Please use -B to specify the directory that saves database files" << endl
              << "Please use -h option to see what parameter we need" << endl;
         return 0;
     }
+
+    char* strategyStr = GetCmdOption(argv, argv + argc, "-S");
+    if (strategyStr == nullptr) {
+        cout << "Please use -S to specify the strategy to be used for testing" << endl
+             << "Please use -h option to see what parameter we need" << endl;
+        return 0;
+    }
+    Strategy strategy = parseStrategy(strategyStr);
+    if (strategy == Strategy::INVALID_STRATEGY) {
+        cout << strategyStr << " is not a valid strategy" << endl
+             << "Please use -h option to see what parameter we need" << endl;
+        return 0;
+    }
+
+    int value = -1;
+    if (strategy != Strategy::AUTO) {
+        char* valueArg = GetCmdOption(argv, argv + argc, "-V");
+        if (valueArg == nullptr) {
+            cout << "Please use -V to specify the value to use for strategy " << strategyStr << endl
+                 << "Please use -h option to see what parameter we need" << endl;
+            return 0;
+        }
+        value = atoi(valueArg);
+        if ((strategy == Strategy::FIXED || strategy == Strategy::ROUND_ROBIN) &&
+            (value < 0 || value > 2)) {
+            cout << valueArg << " is not a valid value for strategy " << strategyStr << endl
+                 << "Please use -h option to see what parameter we need" << endl;
+            return 0;
+        }
+    }
+
     databaseHomeDirectory = databaseDir;
     dataFilePath = databaseHomeDirectory + "/data.kz";
     metadataFilePath = databaseHomeDirectory + "/metadata.kz";
@@ -420,7 +570,11 @@ int main(int argc, char* argv[])
         <<endl;
 
     /* Seed random generator before proceed */
-    srand(static_cast<unsigned int>(time(0)));
+    if (strategy == Strategy::SEED) {
+        srand(static_cast<unsigned int>(value));
+    } else if (strategy == Strategy::AUTO) {
+        srand(static_cast<unsigned int>(time(0)));
+    }
 
     /* Create an empty on-disk database and connect to it */
     kuzu::main::SystemConfig systemConfig;
@@ -432,23 +586,26 @@ int main(int argc, char* argv[])
         vector<TestCaseStat> allStat = {};
         while (curIter <= maxIteration) {
             cout << "----------------------------\nBegin " + to_string(curIter) + "th iterations\n----------------------------" << endl;
-            TestType testCase = (TestType)(rand() % 3);
-            TestCaseStat stat = {microseconds(0), 0, microseconds(0), 0};
+            TestType testCase = getTestCaseByStrategy(strategy, value);
+            TestCaseStat stat = {microseconds(0), 0, microseconds(0), 0, 0};
             switch (testCase) {
-                case DROP_TABLE: {
+                case TestType::DROP_TABLE: {
                     cout << "Test Type: DROP_TABLE" << endl;
                     DropTableTest(connection, stat);
                     break;
                 }
-                case ALTER_TABLE: {
+                case TestType::ALTER_TABLE: {
                     cout << "Test Type: ALTER_TABLE" << endl;
                     AlterTableTest(connection, stat);
                     break;
                 }
-                case DELETE_NODE_GROUP: {
+                case TestType::DELETE_NODE_GROUP: {
                     cout << "Test Type: DELETE_NODE_GROUP" << endl;
                     DeleteNodeGroupTest(connection, stat);
                     break;
+                }
+                default: {
+                    cout << "INVALID_TEST_TYPE" << endl;
                 }
             }
             stat.PrintStat();
