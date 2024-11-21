@@ -561,6 +561,8 @@ int main(int argc, char* argv[])
         <<"    Csv file source directory: "<<csvFileDir<<endl
         <<"    Max test iterations: "<<maxIteration<<endl
         <<"    Database home directory: "<<databaseDir<<endl
+        <<"    Test strategy: "<<strategyStr<<endl
+        <<"    Strategy value: "<<value<<endl
         <<"    Debug Build?: "
 #ifdef DEBUG
         <<"True"
