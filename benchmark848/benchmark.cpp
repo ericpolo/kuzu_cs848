@@ -197,8 +197,8 @@ typedef struct TestCaseStat {
              << "    runningDuration:          " << accStat.runningDuration.count() << " μs" << endl
              << "    dataFileSizeAvg:          " << accStat.dataFileSize / allStat.size() << " bytes" << endl
              << "    dataFileSizeFinal:        " << allStat.back().dataFileSize << " bytes" << endl
-             << "    metadataFileSizeAvg:       " << allStat.back().metadataFileSize << " bytes" << endl
-             << "    metadataFileSizeFinal:   " << allStat.back().metadataFileSize << " bytes" << endl;
+             << "    metadataFileSizeAvg:      " << allStat.back().metadataFileSize << " bytes" << endl
+             << "    metadataFileSizeFinal:    " << allStat.back().metadataFileSize << " bytes" << endl;
     }
 } TestCaseStat;
 
