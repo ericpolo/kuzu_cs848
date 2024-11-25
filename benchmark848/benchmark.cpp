@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <stdlib.h>
 #include <ctime>
+#include <fstream>
+#include <sstream>
 
 #ifdef DEBUG
 #include "../build/debug/src/kuzu.hpp"
@@ -17,9 +19,9 @@ using namespace kuzu::main;
 using namespace std;
 using namespace std::chrono;
 
-/* We create three node tables: People, Customer, and Organization. All three tables contain 10k entries */
+/* We create three node tables: People, Customer, and Organization. All three tables contain 100k entries */
 const int NUM_TABLES = 3;
-const int NUM_ROWS = 10000;
+const int NUM_ROWS = 100000;
 const string tableNames[NUM_TABLES] = {"People", "Customer", "Organization"};
 const string tableCreateQuery [NUM_TABLES] = {
     "CREATE NODE TABLE People (id INT32, firstName STRING, lastName STRING, sex STRING, email STRING, phone STRING, jobTitle STRING, PRIMARY KEY(id));",
@@ -159,6 +161,12 @@ Strategy parseStrategy(const std::string& str) {
 
 /* This struct keep tracks of stat of each test case */
 typedef struct TestCaseStat {
+    /* Test metadata */
+    string testName = "";
+    string tableName = "";
+    string columnName = "";
+    int recordsDeleted = 0;
+
     /* Accumulated Checkpoint time */
     microseconds checkPointTimeAcc;
     /* Number of Checkpoint executed */
@@ -172,6 +180,10 @@ typedef struct TestCaseStat {
 
     void PrintStat() {
         cout << "Current test case stat:" << endl
+             << "    Test name:                " << testName << endl
+             << "    Table name:               " << tableName << endl
+             << "    Column name:              " << columnName << endl
+             << "    Records deleted:          " << recordsDeleted << endl
              << "    checkPointTimeAccumulate: " << checkPointTimeAcc.count() <<" μs"<< endl
              << "    checkPointCounts:         " << numCheckPoint << endl
              << "    checkPointTimeAverage:    " << checkPointTimeAcc.count() / numCheckPoint << " μs" << endl
@@ -181,9 +193,10 @@ typedef struct TestCaseStat {
     }
 
     static void PrintAllStat(vector<TestCaseStat> allStat) {
-        TestCaseStat accStat = {microseconds(0), 0, microseconds(0), 0, 0};
+        TestCaseStat accStat = {"", "", "", 0, microseconds(0), 0, microseconds(0), 0, 0};
 
         for (auto stat : allStat) {
+            accStat.recordsDeleted += stat.recordsDeleted;
             accStat.checkPointTimeAcc += stat.checkPointTimeAcc;
             accStat.numCheckPoint += stat.numCheckPoint;
             accStat.runningDuration += stat.runningDuration;
@@ -191,6 +204,7 @@ typedef struct TestCaseStat {
             accStat.metadataFileSize += stat.metadataFileSize;
         }
         cout << "Overall test cases stat:" << endl
+             << "    totalRecordsDeleted:      " << accStat.recordsDeleted << endl
              << "    checkPointTimeAccumulate: " << accStat.checkPointTimeAcc.count() <<" μs"<< endl
              << "    checkPointCounts:         " << accStat.numCheckPoint << endl
              << "    checkPointTimeAverage:    " << accStat.checkPointTimeAcc.count() / accStat.numCheckPoint << " μs" << endl
@@ -199,6 +213,27 @@ typedef struct TestCaseStat {
              << "    dataFileSizeFinal:        " << allStat.back().dataFileSize << " bytes" << endl
              << "    metadataFileSizeAvg:      " << allStat.back().metadataFileSize << " bytes" << endl
              << "    metadataFileSizeFinal:    " << allStat.back().metadataFileSize << " bytes" << endl;
+    }
+
+    static void publishCsv(vector<TestCaseStat> allStat, string fileName) {
+        std::ofstream csvFile(fileName);
+
+        // print csv headers
+        csvFile << "Test Name,Table Name,Column Name,Records Deleted,Checkpoint time,Num Checkpoints,"
+                << "Running Duration,Data File Size,Metadata File Size" << endl;
+        for (auto stat : allStat) {
+            // Print exact values
+            csvFile << stat.testName << ","
+                    << stat.tableName << ","
+                    << stat.columnName << ","
+                    << stat.recordsDeleted << ","
+                    << stat.checkPointTimeAcc.count() << ","
+                    << stat.numCheckPoint << ","
+                    << stat.runningDuration.count() << ","
+                    << stat.dataFileSize << ","
+                    << stat.metadataFileSize << endl;
+        }
+        csvFile.close();
     }
 } TestCaseStat;
 
@@ -231,9 +266,9 @@ char* GetCmdOption(char ** begin, char ** end, const string & option)
 
 void UpdateTableCopyQuery(const string& csvFileDir)
 {
-    tableCopyQuery[0] = "COPY People FROM '" + csvFileDir + +"/people-10000.csv';";
-    tableCopyQuery[1] = "COPY Customer FROM '" + csvFileDir + +"/customers-10000.csv';";
-    tableCopyQuery[2] = "COPY Organization FROM '" + csvFileDir + +"/organizations-10000.csv';";
+    tableCopyQuery[0] = "COPY People FROM '" + csvFileDir + +"/people-100000.csv';";
+    tableCopyQuery[1] = "COPY Customer FROM '" + csvFileDir + +"/customers-100000.csv';";
+    tableCopyQuery[2] = "COPY Organization FROM '" + csvFileDir + +"/organizations-100000.csv';";
 }
 
 long GetFileSize(const string& filename)
@@ -367,16 +402,18 @@ void DropTableTest(const unique_ptr<Connection> &connection, TestCaseStat &stat)
     CreateTable(connection, nextTableName);
     ckptAccTime += Checkpoint(connection);
 
-    /* 3. Drop the second tables here to wrap up the test */
-    DropTable(connection, nextTableName);
-    ckptAccTime += Checkpoint(connection);
-
-    /* 4. Update TestCaseStat here */
-    stat.checkPointTimeAcc = ckptAccTime;
-    stat.numCheckPoint = 3;
+    /* 3. Update TestCaseStat here */
     stat.runningDuration = duration_cast<microseconds>(high_resolution_clock::now() - start);
+    stat.testName = "DropTableTest";
+    stat.tableName = tableName;
+    stat.checkPointTimeAcc = ckptAccTime;
+    stat.numCheckPoint = 2;
     stat.dataFileSize = GetFileSize(dataFilePath);
     stat.metadataFileSize = GetFileSize(metadataFilePath);
+
+    /* 4. Drop the second tables here to wrap up the test. Do not consider metrics form here */
+    DropTable(connection, nextTableName);
+    Checkpoint(connection);
 }
 
 /*
@@ -410,17 +447,20 @@ void AlterTableTest(const unique_ptr<Connection> &connection, TestCaseStat &stat
     CreateTable(connection, nextTableName);
     ckptAccTime += Checkpoint(connection);
 
-    /* 3. Drop both tables here to wrap up the test */
-    DropTable(connection, tableName);
-    DropTable(connection, nextTableName);
-    ckptAccTime += Checkpoint(connection);
-
-    /* 4. Update TestCaseStat here */
-    stat.checkPointTimeAcc = ckptAccTime;
-    stat.numCheckPoint = 3;
+    /* 3. Update TestCaseStat here */
     stat.runningDuration = duration_cast<microseconds>(high_resolution_clock::now() - start);
+    stat.testName = "AlterTableTest";
+    stat.tableName = tableName;
+    stat.columnName = dropColName;
+    stat.checkPointTimeAcc = ckptAccTime;
+    stat.numCheckPoint = 2;
     stat.dataFileSize = GetFileSize(dataFilePath);
     stat.metadataFileSize = GetFileSize(metadataFilePath);
+
+    /* 4. Drop both tables here to wrap up the test. Do not consider metrics from here */
+    DropTable(connection, tableName);
+    DropTable(connection, nextTableName);
+    Checkpoint(connection);
 }
 
 /* Delete Node Group Test */
@@ -453,17 +493,20 @@ void DeleteNodeGroupTest(const unique_ptr<Connection> &connection, TestCaseStat 
     CreateTable(connection, nextTableName);
     ckptAccTime += Checkpoint(connection);
 
-    /* 4. Drop both tables here to wrap up the test */
-    DropTable(connection, tableName);
-    DropTable(connection, nextTableName);
-    ckptAccTime += Checkpoint(connection);
-
-    /* 5. Update TestCaseStat here */
-    stat.checkPointTimeAcc = ckptAccTime;
-    stat.numCheckPoint = 4;
+    /* 4. Update TestCaseStat here */
     stat.runningDuration = duration_cast<microseconds>(high_resolution_clock::now() - start);
+    stat.testName = "DeleteNodeGroupTest";
+    stat.tableName = tableName;
+    stat.recordsDeleted = endId - beginId;
+    stat.checkPointTimeAcc = ckptAccTime;
+    stat.numCheckPoint = 3;
     stat.dataFileSize = GetFileSize(dataFilePath);
     stat.metadataFileSize = GetFileSize(metadataFilePath);
+
+    /* 5. Drop both tables here to wrap up the test. Do not consider metrics from here */
+    DropTable(connection, tableName);
+    DropTable(connection, nextTableName);
+    Checkpoint(connection);
 }
 
 TestType getTestCaseByStrategy(Strategy strategy, int& value) {
@@ -576,7 +619,10 @@ int main(int argc, char* argv[])
         srand(static_cast<unsigned int>(value));
     } else if (strategy == Strategy::AUTO) {
         srand(static_cast<unsigned int>(time(0)));
+    } else {
+        srand(123u); // Guarantee of same tables and columns for fixed tests
     }
+    int valueCopy = value; // round-robin modifies the original value to keep track
 
     /* Create an empty on-disk database and connect to it */
     kuzu::main::SystemConfig systemConfig;
@@ -588,8 +634,8 @@ int main(int argc, char* argv[])
         vector<TestCaseStat> allStat = {};
         while (curIter <= maxIteration) {
             cout << "----------------------------\nBegin " + to_string(curIter) + "th iterations\n----------------------------" << endl;
-            TestType testCase = getTestCaseByStrategy(strategy, value);
-            TestCaseStat stat = {microseconds(0), 0, microseconds(0), 0, 0};
+            TestType testCase = getTestCaseByStrategy(strategy, valueCopy);
+            TestCaseStat stat = {"", "", "", 0, microseconds(0), 0, microseconds(0), 0, 0};
             switch (testCase) {
                 case TestType::DROP_TABLE: {
                     cout << "Test Type: DROP_TABLE" << endl;
@@ -618,5 +664,9 @@ int main(int argc, char* argv[])
         }
 
         TestCaseStat::PrintAllStat(allStat);
+
+        ostringstream oss;
+        oss << strategy << "_" << value << "_result.csv";
+        TestCaseStat::publishCsv(allStat, oss.str());
     }
 }
