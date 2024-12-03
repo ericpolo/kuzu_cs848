@@ -232,7 +232,7 @@ void FreeChunkMap::serialize(Serializer& serializer) const
     if (!ENABLE_FREE_CHUNK_MAP) {
         return;
     }
-    serializer.writeDebuggingInfo("freeChunkLevel");
+    serializer.writeDebuggingInfo("maxAvailLevel");
     serializer.write<FreeChunkLevel>(maxAvailLevel);
     serializer.writeDebuggingInfo("freeChunkList");
     serializer.serializeVectorOfNullablePtrs<FreeChunkEntry>(freeChunkList);
