@@ -56,6 +56,8 @@ Here is an example to run for 10 iterations with round-robin strategy that start
 ```
 ./848benchmark -N 10 -D . -B ./testDB/ -S round -V 1
 ```
-Remember to clean your test database directory before each run of the test to make sure collected test is accurate.
-Or you could run them consecutively to get result for more iterations.
+Note:
+1. If you want to run benchmark without FCM enabled, please change the MACRO **ENABLE_FREE_CHUNK_MAP** in file src/include/storage/store/free_chunk_map.h to be false.
+2. REMEMBER to clean your old build before rebuild kuzu when **ENABLE_FREE_CHUNK_MAP** is updated. Changing MACRO will not update package during the next rebuild which essentially does nothing; therefore, you may not see the performance difference in benchmark result.
+3. Remember to clean your test database directory before each run of the test to make sure collected test is accurate Or you could run them consecutively to accumulate results for more iterations.
 

@@ -38,11 +38,13 @@ FreeChunkMap::~FreeChunkMap() {
 /*
  * This function returns which FREE_CHUNK_LEVEL a given numPages belongs to.
  * For example,
- *     numPages < 2  -> FREE_CHUNK_LEVEL_0
- *     numPages < 4  -> FREE_CHUNK_LEVEL_2
- *     numPages < 8  -> FREE_CHUNK_LEVEL_4
- *     numPages < 16 -> FREE_CHUNK_LEVEL_8
+ *     numPages  <  2   -> FREE_CHUNK_LEVEL_0
+ *     numPages  <  4   -> FREE_CHUNK_LEVEL_2
+ *     numPages  <  8   -> FREE_CHUNK_LEVEL_4
+ *     numPages  <  16  -> FREE_CHUNK_LEVEL_8
  *     ...
+ * One exception is FREE_CHUNK_LEVEL_128 since it is the top level:
+ *     numPages >= 128  -> FREE_CHUNK_LEVEL_128
  */
 FreeChunkLevel FreeChunkMap::getChunkLevel(const page_idx_t numPages)
 {
@@ -58,6 +60,7 @@ FreeChunkLevel FreeChunkMap::getChunkLevel(const page_idx_t numPages)
     return MAX_FREE_CHUNK_LEVEL;
 }
 
+ /* Update maxAvailLevel by checking the nullness of freeChunkList entry backwards */
 void FreeChunkMap::updateMaxAvailLevel()
 {
     FreeChunkLevel nextAvailLevel = INVALID_FREE_CHUNK_LEVEL;
@@ -71,8 +74,9 @@ void FreeChunkMap::updateMaxAvailLevel()
 }
 
 /*
+ * Try to retrieve an satisfying entry from FreeChunkMap based on required numPages
  * Note: Any caller of this function need to add the entry back to FreeChunkMap after use so that the rest
- * of its unused space will be reused
+ *       of its unused space will be reused
  */
 std::unique_ptr<FreeChunkEntry> FreeChunkMap::getFreeChunk(const page_idx_t numPages)
 {
@@ -122,9 +126,10 @@ std::unique_ptr<FreeChunkEntry> FreeChunkMap::getFreeChunk(const page_idx_t numP
                     entryToReturn = std::move(lastSearchEntry->nextEntry);
                     lastSearchEntry->nextEntry = std::move(entryToReturn->nextEntry);
                 }
+
+		/* Return it to caller */
                 entryToReturn->nextEntry = nullptr;
                 existingFreeChunks.erase(entryToReturn->pageIdx);
-
                 return entryToReturn;
             }
 
@@ -141,6 +146,7 @@ std::unique_ptr<FreeChunkEntry> FreeChunkMap::getFreeChunk(const page_idx_t numP
     return nullptr;
 }
 
+/* Add entry to FreeChunkMap given the physical info of a recycled chunk */
 void FreeChunkMap::addFreeChunk(const page_idx_t pageIdx, const page_idx_t numPages)
 {
     KU_ASSERT(pageIdx != INVALID_PAGE_IDX && numPages != 0);
