@@ -537,7 +537,10 @@ int main(int argc, char* argv[])
              << "                  0. DROP_TABLE\n"
              << "                  1. DELETE_NODE_GROUP\n"
              << "                  2. ALTER_TABLE\n"
-             << "               If strategy is seed, value can be any integer." << endl;
+             << "               If strategy is seed, value can be any integer."
+	     << "NOTE: If you want to disable FreeChunkMap, update ENABLE_FREE_CHUNK_MAP accordingly."
+	     << "      Always clean old build by make -sj clean if ENABLE_FREE_CHUNK_MAP is updated."
+	     << endl;
         return 0;
     }
 

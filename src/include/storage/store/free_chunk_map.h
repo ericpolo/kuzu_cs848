@@ -47,12 +47,12 @@ const common::page_idx_t FreeChunkLevelPageNumLimit[MAX_FREE_CHUNK_LEVEL] = {
 /*
  * FreeChunkEntry is the main structure to maintain free space information of each chunk:
  *   pageIdx indicates the start page of a given data chunk
- *   numPages indicates how many *consecutive* free pages this data chunk owns
+ *   numPages indicates how many consecutive free pages this data chunk owns
  *   reuseTS is the latest TS when this entry is created. This is to make sure the data of corresponding
  *     data chunk is not recycled until no one keeps TS that is old enough to see it.
- * Note that reuseTS is removed in the 2nd version since flushing only happens when checkpoint and checkpoint will
- * wait all other transactions to finish before proceeding and writing data to disk; with that saying, we are safe
- * to reuse any recycled column chunk here.
+ * Note: reuseTS is removed in the 2nd version of implementation since flushing only happens when checkpoint and
+ *       checkpoint will wait all other transactions to finish before proceeding and writing data to disk;
+ *       with that saying, we are safe to reuse any recycled column chunk here without version control.
  */
 typedef struct FreeChunkEntry {
     common::page_idx_t pageIdx;
@@ -73,17 +73,24 @@ public:
     FreeChunkMap();
     ~FreeChunkMap();
 
+    /* Get a free chunk to write new data */
     std::unique_ptr<FreeChunkEntry> getFreeChunk(common::page_idx_t numPages);
+    /* Add info of a recycled chunk into FreeChunkMap */
     void addFreeChunk(common::page_idx_t pageIdx, common::page_idx_t numPages);
 
+    /* Functions used for persistency of FreeChunkMap data */
     void serialize(common::Serializer& serializer) const;
     void deserialize(common::Deserializer& deserializer);
 
 private:
+    /* Helper functions */
     FreeChunkLevel getChunkLevel(common::page_idx_t numPages);
     void updateMaxAvailLevel();
 
-    /*No need for locks here since only checkpoint will need free chunks when all other transactions are blocked */
+    /*
+     * No need for locks here since only checkpoint will need free chunks
+     * when all other transactions are blocked
+     */
     std::vector<std::unique_ptr<FreeChunkEntry>> freeChunkList;
     std::unordered_set<common::page_idx_t> existingFreeChunks;
     FreeChunkLevel maxAvailLevel;
